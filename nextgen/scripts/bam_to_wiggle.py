@@ -1,29 +1,20 @@
 #!/usr/bin/env python
-"""Convert BAM files to BigWig file format in a specified region.
+usage = """Convert BAM files to BigWig file format in a specified region.
 
 Usage:
-    bam_to_wiggle.py <BAM file> [<YAML config>]
-    [--outfile=<output file name>
-     --chrom=<chrom>
-     --start=<start>
-     --end=<end>
-     --normalize]
+    %prog in.bam -o out.bigwig
 
 chrom start and end are optional, in which case they default to everything.
 The normalize flag adjusts counts to reads per million.
 
-The config file is in YAML format and specifies the location of the wigToBigWig
-program from UCSC:
+The output is wiritten to
 
-program:
-  ucsc_bigwig: wigToBigWig
-
-If not specified, these will be assumed to be present in the system path.
 
 The script requires:
     pysam (http://code.google.com/p/pysam/)
     wigToBigWig from UCSC (http://hgdownload.cse.ucsc.edu/admin/exe/)
-If a configuration file is used, then PyYAML is also required (http://pyyaml.org/)
+
+The tool wigToBigWig is assumed to be present in the system path.
 """
 import os
 import sys
@@ -34,11 +25,10 @@ from contextlib import contextmanager, closing
 
 import pysam
 
-from bcbio.pipeline.config_utils import load_config, get_program
 
 def main(bam_file, config_file=None, chrom='all', start=0, end=None,
-         outfile=None, normalize=False, use_tempfile=False):
-    if config_file:
+         outfile=None, normalize=False, use_tempfile=False, trak_name=None):
+    if config_file:#there is no config file since len(argv)=1 is imposed
         config = load_config(config_file)
     else:
         config = {"program": {"ucsc_bigwig" : "wigToBigWig"}}
@@ -62,7 +52,7 @@ def main(bam_file, config_file=None, chrom='all', start=0, end=None,
             out_handle = open(wig_file, "w")
         with closing(out_handle):
             chr_sizes, wig_valid = write_bam_track(bam_file, regions, config, out_handle,
-                                                   normalize)
+                                                   normalize, trak_name)
         try:
             if wig_valid:
                 convert_to_bigwig(wig_file, chr_sizes, config, outfile)
@@ -77,9 +67,11 @@ def indexed_bam(bam_file, config):
     yield sam_reader
     sam_reader.close()
 
-def write_bam_track(bam_file, regions, config, out_handle, normalize):
+def write_bam_track(bam_file, regions, config, out_handle, normalize, trak_name=None):
+    if trak_name is None:
+        trak_name = os.path.splitext(os.path.split(bam_file)[-1])[0]
     out_handle.write("track %s\n" % " ".join(["type=wiggle_0",
-        "name=%s" % os.path.splitext(os.path.split(bam_file)[-1])[0],
+        "name=%s" % trak_name,
         "visibility=full",
         ]))
     normal_scale = 1e6
@@ -118,19 +110,19 @@ def convert_to_bigwig(wig_file, chr_sizes, config, bw_file=None):
     return bw_file
 
 if __name__ == "__main__":
-    parser = OptionParser()
+    parser = OptionParser(usage=usage)
     parser.add_option("-o", "--outfile", dest="outfile")
     parser.add_option("-c", "--chrom", dest="chrom")
     parser.add_option("-s", "--start", dest="start")
     parser.add_option("-e", "--end", dest="end")
+    parser.add_option("-a", "--name", dest="trak_name")
     parser.add_option("-n", "--normalize", dest="normalize",
                       action="store_true", default=False)
     parser.add_option("-t", "--tempfile", dest="use_tempfile",
                       action="store_true", default=False)
     (options, args) = parser.parse_args()
-    if len(args) not in [1, 2]:
+    if len(args) !=1:
         print "Incorrect arguments"
-        print __doc__
         sys.exit()
     kwargs = dict(
         outfile=options.outfile,
@@ -138,5 +130,6 @@ if __name__ == "__main__":
         start=options.start or 0,
         end=options.end,
         normalize=options.normalize,
-        use_tempfile=options.use_tempfile)
+        use_tempfile=options.use_tempfile,
+        trak_name=options.trak_name)
     main(*args, **kwargs)
